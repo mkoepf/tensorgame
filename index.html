@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>TensorGame</title>
+  <script src="https://cdn.jsdelivr.net/pyodide/v0.25.1/full/pyodide.js"></script>
+  <style>
+    body { font-family: sans-serif; background: #f4f4f4; padding: 2em; }
+    textarea { font-family: monospace; width: 100%; box-sizing: border-box; }
+    #output { background: #222; color: #0f0; padding: 1em; margin-top: 1em; white-space: pre-wrap; }
+    .tensor { color: #0074d9; }
+    .tensor-blocks { display: flex; gap: 2em; margin-bottom: 1em; }
+    .tensor-block { background: #fff; border-radius: 8px; box-shadow: 0 2px 8px #0001; padding: 1em; flex: 1; }
+    .tensor-label { font-weight: bold; margin-bottom: 0.5em; }
+    pre.tensor { background: #f8f8ff; color: #0074d9; padding: 0.5em; border-radius: 4px; min-height: 2em; }
+    .tensor-row { display: flex; }
+    .tensor-grid { display: flex; flex-direction: column; }
+    .tensor-box {
+      display: inline-block;
+      min-width: 2em;
+      min-height: 2em;
+      margin: 2px;
+      padding: 0.5em;
+      background: #e3f2fd;
+      border: 1px solid #90caf9;
+      border-radius: 4px;
+      text-align: center;
+      font-family: monospace;
+      font-size: 1.1em;
+      color: #1565c0;
+    }
+    .tensor-block-nd {
+      margin: 0.5em 0;
+      padding: 0.2em;
+      border: 1px dashed #90caf9;
+      border-radius: 4px;
+      display: inline-block;
+    }
+  </style>
+</head>
+<body>
+  <h1>TensorGame</h1>
+  <h2 id="level-number">Level</h2>
+  <div class="tensor-blocks">
+    <div class="tensor-block">
+      <div class="tensor-label">Input tensor:</div>
+      <pre id="input-tensor" class="tensor"></pre>
+    </div>
+    <div class="tensor-block">
+      <div class="tensor-label">Target tensor:</div>
+      <pre id="target-tensor" class="tensor"></pre>
+    </div>
+    <div class="tensor-block">
+      <div class="tensor-label">Your result:</div>
+      <pre id="user-result" class="tensor"></pre>
+    </div>
+  </div>
+  <p>Write Python code to transform the tensor <code>x</code> into the target:</p>
+  <textarea id="code-input" rows="2"></textarea><br><br>
+  <button id="run-btn">Run</button>
+  <pre id="output">💡 Output will appear here …</pre>
+  <script type="text/javascript">
+    let pyodideReady = loadPyodide({ indexURL: "https://cdn.jsdelivr.net/pyodide/v0.25.1/full/" });
+    let pyodide = null;
+    async function main() {
+      pyodide = await pyodideReady;
+      await pyodide.loadPackage(["numpy"]);
+
+      const helperCode = await (await fetch("levels.py")).text();
+      pyodide.FS.writeFile("levels.py", helperCode);
+
+      // Load game.py instead of embedded python
+      await pyodide.runPythonAsync(await (await fetch("game.py")).text());
+      await updateLevelUI();
+    }
+    // Helper to render a tensor as boxes with correct dimensionality
+    function renderTensorBoxes(arr) {
+      if (!arr) return '';
+      let parsed;
+      try {
+        parsed = JSON.parse(arr.replace(/'/g, '"'));
+      } catch {
+        // fallback: try to parse numpy string
+        parsed = arr;
+      }
+      // If it's a string, just show as is
+      if (typeof parsed === 'string') return parsed;
+      // 1D: row of boxes
+      if (Array.isArray(parsed) && (parsed.length === 0 || typeof parsed[0] !== 'object')) {
+        return `<div class='tensor-row'>${parsed.map(x => `<span class='tensor-box'>${x}</span>`).join('')}</div>`;
+      }
+      // 2D: grid
+      if (Array.isArray(parsed) && Array.isArray(parsed[0])) {
+        return `<div class='tensor-grid'>${parsed.map(row => `<div class='tensor-row'>${row.map(x => `<span class='tensor-box'>${x}</span>`).join('')}</div>`).join('')}</div>`;
+      }
+      // 3D or higher: recursively render blocks
+      if (Array.isArray(parsed)) {
+        return parsed.map(sub => `<div class='tensor-block-nd'>${renderTensorBoxes(JSON.stringify(sub))}</div>`).join('');
+      }
+      return '';
+    }
+    async function updateLevelUI() {
+      const levelData = JSON.parse(await pyodide.runPythonAsync("get_level_data()"));
+      document.getElementById("level-number").innerText = `Level ${levelData.level}`;
+      document.getElementById("input-tensor").innerHTML = renderTensorBoxes(levelData.input_tensor_str);
+      document.getElementById("target-tensor").innerHTML = renderTensorBoxes(levelData.target_tensor_str);
+      document.getElementById("user-result").innerHTML = "";
+      document.getElementById("code-input").value = levelData.code_default;
+      document.getElementById("output").innerText = "💡 Output will appear here …";
+    }
+    main();
+    document.getElementById("run-btn").onclick = async function() {
+      await runUserCode();
+    };
+    document.getElementById("code-input").addEventListener("keydown", async function(e) {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        await runUserCode();
+      }
+    });
+    async function runUserCode() {
+      const userCode = document.getElementById("code-input").value;
+      const result = JSON.parse(await pyodide.runPythonAsync(`check_user_code(r'''${userCode}''')`));
+      document.getElementById("output").innerText = result.message;
+      document.getElementById("user-result").innerHTML = renderTensorBoxes(result.user_result || "");
+      if (result.result === "correct") {
+        setTimeout(async () => {
+          await pyodide.runPythonAsync("next_level()");
+          await updateLevelUI();
+        }, 1000);
+      }
+    }
+  </script>
+</body>
+</html>
