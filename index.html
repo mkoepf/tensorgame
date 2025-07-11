@@ -58,6 +58,12 @@
   <p>Write Python code to transform the tensor <code>x</code> into the target:</p>
   <textarea id="code-input" rows="2"></textarea><br><br>
   <button id="run-btn">Run</button>
+  <div id="status-info" style="font-size: 0.9em; color: #666; margin: 0.5em 0;">
+    Failed attempts: <span id="failed-count">0</span>
+  </div>
+  <div id="hint-box" style="display: none; background: #fff3cd; border: 1px solid #ffeaa7; border-radius: 4px; padding: 1em; margin: 1em 0;">
+    <strong>💡 Hint:</strong> <span id="hint-text"></span>
+  </div>
   <pre id="output">💡 Output will appear here …</pre>
   <script type="text/javascript">
     let pyodideReady = loadPyodide({ indexURL: "https://cdn.jsdelivr.net/pyodide/v0.25.1/full/" });
@@ -107,6 +113,24 @@
       document.getElementById("user-result").innerHTML = "";
       document.getElementById("code-input").value = levelData.code_default;
       document.getElementById("output").innerText = "💡 Output will appear here …";
+      
+      // Update failed attempts counter
+      document.getElementById("failed-count").innerText = levelData.failed_attempts || 0;
+      
+      // Reset styling for user result block
+      const userResultBlock = document.getElementById("user-result").closest('.tensor-block');
+      userResultBlock.style.borderLeft = "";
+      userResultBlock.style.backgroundColor = "";
+      
+      // Show/hide hint based on failed attempts
+      const hintBox = document.getElementById("hint-box");
+      const hintText = document.getElementById("hint-text");
+      if (levelData.show_hint && levelData.hint) {
+        hintText.innerText = levelData.hint;
+        hintBox.style.display = "block";
+      } else {
+        hintBox.style.display = "none";
+      }
     }
     main();
     document.getElementById("run-btn").onclick = async function() {
@@ -120,14 +144,51 @@
     });
     async function runUserCode() {
       const userCode = document.getElementById("code-input").value;
+      
+      // Debug: Check state before
+      const stateBefore = JSON.parse(await pyodide.runPythonAsync("debug_state()"));
+      console.log("State before check:", stateBefore);
+      
       const result = JSON.parse(await pyodide.runPythonAsync(`check_user_code(r'''${userCode}''')`));
+      
+      // Debug: Check state after
+      const stateAfter = JSON.parse(await pyodide.runPythonAsync("debug_state()"));
+      console.log("State after check:", stateAfter);
+      
       document.getElementById("output").innerText = result.message;
-      document.getElementById("user-result").innerHTML = renderTensorBoxes(result.user_result || "");
+      
+      const userResultElement = document.getElementById("user-result");
+      userResultElement.innerHTML = renderTensorBoxes(result.user_result || "");
+      
+      // Style the result based on correctness
+      const userResultBlock = userResultElement.closest('.tensor-block');
       if (result.result === "correct") {
+        userResultBlock.style.borderLeft = "4px solid #28a745";
+        userResultBlock.style.backgroundColor = "#f8fff8";
         setTimeout(async () => {
           await pyodide.runPythonAsync("next_level()");
           await updateLevelUI();
-        }, 1000);
+        }, 2000);
+      } else {
+        userResultBlock.style.borderLeft = "4px solid #dc3545";
+        userResultBlock.style.backgroundColor = "#fff8f8";
+        
+        // Get updated level data with new failed attempts count
+        const levelData = JSON.parse(await pyodide.runPythonAsync("get_level_data()"));
+        
+        // Update failed attempts counter
+        document.getElementById("failed-count").innerText = levelData.failed_attempts || 0;
+        
+        // Show/hide hint based on failed attempts
+        const hintBox = document.getElementById("hint-box");
+        const hintText = document.getElementById("hint-text");
+        console.log("Failed attempts:", levelData.failed_attempts, "Show hint:", levelData.show_hint, "Hint:", levelData.hint);
+        if (levelData.show_hint && levelData.hint) {
+          hintText.innerText = levelData.hint;
+          hintBox.style.display = "block";
+        } else {
+          hintBox.style.display = "none";
+        }
       }
     }
   </script>
