@@ -36,11 +36,37 @@
       border-radius: 4px;
       display: inline-block;
     }
+    #level-select {
+      padding: 0.3em 0.5em;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      background: white;
+      font-size: 0.9em;
+    }
+    .level-header {
+      display: flex;
+      align-items: center;
+      gap: 1em;
+      margin-bottom: 1em;
+    }
+    .level-selector {
+      display: flex;
+      align-items: center;
+      gap: 0.5em;
+    }
   </style>
 </head>
 <body>
   <h1>TensorGame</h1>
-  <h2 id="level-number">Level</h2>
+  <div class="level-header">
+    <h2 id="level-number">Level</h2>
+    <div class="level-selector">
+      <label for="level-select" style="font-size: 0.9em; color: #666;">Jump to level:</label>
+      <select id="level-select">
+        <!-- Options will be populated by JavaScript -->
+      </select>
+    </div>
+  </div>
   <div class="tensor-blocks">
     <div class="tensor-block">
       <div class="tensor-label">Input tensor:</div>
@@ -77,6 +103,10 @@
 
       // Load game.py instead of embedded python
       await pyodide.runPythonAsync(await (await fetch("game.py")).text());
+      
+      // Populate level selector
+      await populateLevelSelector();
+      
       await updateLevelUI();
     }
     // Helper to render a tensor as boxes with correct dimensionality
@@ -117,6 +147,9 @@
       // Update failed attempts counter
       document.getElementById("failed-count").innerText = levelData.failed_attempts || 0;
       
+      // Update level selector to match current level
+      document.getElementById("level-select").value = levelData.level - 1; // Convert to 0-based
+      
       // Reset styling for user result block
       const userResultBlock = document.getElementById("user-result").closest('.tensor-block');
       userResultBlock.style.borderLeft = "";
@@ -132,6 +165,37 @@
         hintBox.style.display = "none";
       }
     }
+    
+    async function populateLevelSelector() {
+      // Get total number of levels
+      const totalLevels = await pyodide.runPythonAsync("len(levels)");
+      const levelSelect = document.getElementById("level-select");
+      
+      // Clear existing options
+      levelSelect.innerHTML = "";
+      
+      // Add options for each level
+      for (let i = 0; i < totalLevels; i++) {
+        const option = document.createElement("option");
+        option.value = i;
+        option.textContent = `Level ${i + 1}`;
+        levelSelect.appendChild(option);
+      }
+      
+      // Add event listener for level changes
+      levelSelect.addEventListener("change", async function() {
+        const selectedLevel = parseInt(this.value);
+        console.log("Jumping to level:", selectedLevel);
+        try {
+          const result = await pyodide.runPythonAsync(`jump_to_level(${selectedLevel})`);
+          console.log("Jump result:", result);
+          await updateLevelUI();
+        } catch (error) {
+          console.error("Error jumping to level:", error);
+        }
+      });
+    }
+    
     main();
     document.getElementById("run-btn").onclick = async function() {
       await runUserCode();
@@ -144,17 +208,7 @@
     });
     async function runUserCode() {
       const userCode = document.getElementById("code-input").value;
-      
-      // Debug: Check state before
-      const stateBefore = JSON.parse(await pyodide.runPythonAsync("debug_state()"));
-      console.log("State before check:", stateBefore);
-      
       const result = JSON.parse(await pyodide.runPythonAsync(`check_user_code(r'''${userCode}''')`));
-      
-      // Debug: Check state after
-      const stateAfter = JSON.parse(await pyodide.runPythonAsync("debug_state()"));
-      console.log("State after check:", stateAfter);
-      
       document.getElementById("output").innerText = result.message;
       
       const userResultElement = document.getElementById("user-result");
@@ -182,7 +236,6 @@
         // Show/hide hint based on failed attempts
         const hintBox = document.getElementById("hint-box");
         const hintText = document.getElementById("hint-text");
-        console.log("Failed attempts:", levelData.failed_attempts, "Show hint:", levelData.show_hint, "Hint:", levelData.hint);
         if (levelData.show_hint && levelData.hint) {
           hintText.innerText = levelData.hint;
           hintBox.style.display = "block";

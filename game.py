@@ -145,5 +145,20 @@ def set_global_state(current_level=None, failed_attempts=None):
         module._failed_attempts = failed_attempts
 
 
+def jump_to_level(level_index):
+    """Jump to a specific level (0-based index)"""
+    if 0 <= level_index < len(levels):
+        _game_state["current_level"] = level_index
+        _game_state["failed_attempts"] = 0  # Reset failed attempts for new level
+        return get_level_data()
+    else:
+        return json.dumps({"error": f"Invalid level index: {level_index}"})
+
+
+def test_jump():
+    """Test function to verify jump_to_level works"""
+    return f"Current level: {_game_state['current_level']}, Total levels: {len(levels)}"
+
+
 # Initialize on module load
 init_game_globals()
